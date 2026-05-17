@@ -1,0 +1,41 @@
+name: Deploy ASP.NET Core Backend
+
+on:
+  push:
+    branches: [ master ] # Fires automatically whenever you push to main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 10 SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x' # Uses the native .NET 10 SDK builder environment
+
+    - name: Publish Framework-Dependent App
+      run: |
+        dotnet publish ./YourProjectName.csproj -c Release -r linux-x64 --self-contained false -o ./publish
+
+    - name: Clear Stale Artifacts and Synchronize via SSH
+      uses: easingthemes/ssh-deploy@main
+      with:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_KEY }}
+        ARGS: "-rlgoDzvO --delete"
+        SOURCE: "publish/"
+        REMOTE_HOST: ${{ secrets.SSH_HOST }}
+        REMOTE_USER: ${{ secrets.SSH_USER }}
+        TARGET: "/var/www/ticketai/production/api"
+
+    - name: Hot-Restart systemd Application Daemon
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_KEY }}
+        script: |
+          sudo systemctl restart support-orchestrator.service
