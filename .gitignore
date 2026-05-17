@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Environment-specific settings with secrets (place directly on server, never commit)
+appsettings.Production.json
+
 # User-specific files
 *.rsuser
 *.suo

@@ -13,17 +13,17 @@ namespace TicketAI.API.Controllers
     public class AuthController : ControllerBase
     {
         private readonly UserManager<IdentityUser> _userManager;
-        private readonly RoleManager<IdentityRole> _roleManager;
         private readonly IConfiguration _configuration;
+        private readonly IWebHostEnvironment _env;
 
         public AuthController(
             UserManager<IdentityUser> userManager, 
-            RoleManager<IdentityRole> roleManager, 
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IWebHostEnvironment env)
         {
             _userManager = userManager;
-            _roleManager = roleManager;
             _configuration = configuration;
+            _env = env;
         }
 
         [HttpPost("register")]
@@ -45,14 +45,6 @@ namespace TicketAI.API.Controllers
             var result = await _userManager.CreateAsync(user, model.Password);
             if (!result.Succeeded)
                 return BadRequest(new { Status = "Error", Errors = result.Errors.Select(e => e.Description) });
-
-            // Ensure roles exist
-            if (!await _roleManager.RoleExistsAsync("User"))
-                await _roleManager.CreateAsync(new IdentityRole("User"));
-            if (!await _roleManager.RoleExistsAsync("Agent"))
-                await _roleManager.CreateAsync(new IdentityRole("Agent"));
-            if (!await _roleManager.RoleExistsAsync("Admin"))
-                await _roleManager.CreateAsync(new IdentityRole("Admin"));
 
             await _userManager.AddToRoleAsync(user, "User");
 
@@ -84,11 +76,13 @@ namespace TicketAI.API.Controllers
             var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
             // Set the JWT as an HttpOnly cookie
+            // SameSite=None + Secure=true required for cross-domain in production
+            var isProduction = _env.IsProduction();
             Response.Cookies.Append("jwt", tokenString, new CookieOptions
             {
                 HttpOnly = true,
-                Secure = false, // Set to true in production with HTTPS
-                SameSite = SameSiteMode.Strict,
+                Secure = isProduction,
+                SameSite = isProduction ? SameSiteMode.None : SameSiteMode.Strict,
                 Expires = token.ValidTo
             });
 
