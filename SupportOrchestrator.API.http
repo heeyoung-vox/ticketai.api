@@ -1,0 +1,6 @@
+@SupportOrchestrator.API_HostAddress = http://localhost:5083
+
+GET {{SupportOrchestrator.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
