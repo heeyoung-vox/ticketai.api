@@ -21,21 +21,21 @@ jobs:
       run: |
         dotnet publish ./TicketAI.API.csproj -c Release -r linux-x64 --self-contained false -o ./publish
 
-    - name: Clear Stale Artifacts and Synchronize via SSH
-      uses: easingthemes/ssh-deploy@main
+    - name: Clear Stale Artifacts and Synchronize via SSH Password
+      uses: appleboy/scp-action@master
       with:
-        SSH_PRIVATE_KEY: ${{ secrets.SSH_KEY }}
-        ARGS: "-rlgoDzvO --delete"
-        SOURCE: "publish/"
-        REMOTE_HOST: ${{ secrets.SSH_HOST }}
-        REMOTE_USER: ${{ secrets.SSH_USER }}
-        TARGET: "/var/www/ticketai/production/api" # Updated directory path
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USER }}
+        password: ${{ secrets.SSH_PASSWORD }} # Uses password instead of SSH Key
+        source: "publish/*"
+        target: "/var/www/ticketai/production/api"
+        strip_components: 1 # Removes the "publish" folder wrapper during copy
 
     - name: Hot-Restart systemd Application Daemon
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.SSH_HOST }}
         username: ${{ secrets.SSH_USER }}
-        key: ${{ secrets.SSH_KEY }}
+        password: ${{ secrets.SSH_PASSWORD }} # Uses password instead of SSH Key
         script: |
           sudo systemctl restart ticketai.service
