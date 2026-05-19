@@ -17,7 +17,7 @@ namespace TicketAI.API.Controllers
         private readonly IWebHostEnvironment _env;
 
         public AuthController(
-            UserManager<IdentityUser> userManager, 
+            UserManager<IdentityUser> userManager,
             IConfiguration configuration,
             IWebHostEnvironment env)
         {
@@ -72,21 +72,29 @@ namespace TicketAI.API.Controllers
                 authClaims.Add(new Claim(ClaimTypes.Role, userRole));
             }
 
-            var token = GetToken(authClaims);
-            var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
-
-            // Set the JWT as an HttpOnly cookie
-            // SameSite=None + Secure=true required for cross-domain in production
-            var isProduction = _env.IsProduction();
-            Response.Cookies.Append("jwt", tokenString, new CookieOptions
+            // Wrap token generation in a defensive try-catch block to safeguard runtime thread
+            try
             {
-                HttpOnly = true,
-                Secure = isProduction,
-                SameSite = isProduction ? SameSiteMode.None : SameSiteMode.Strict,
-                Expires = token.ValidTo
-            });
+                var token = GetToken(authClaims);
+                var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
-            return Ok(new { Status = "Success", Username = user.UserName, Role = userRoles.FirstOrDefault() });
+                // Set the JWT as an HttpOnly cookie
+                // SameSite=None + Secure=true required for cross-domain in production
+                var isProduction = _env.IsProduction();
+                Response.Cookies.Append("jwt", tokenString, new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = isProduction,
+                    SameSite = isProduction ? SameSiteMode.None : SameSiteMode.Strict,
+                    Expires = token.ValidTo
+                });
+
+                return Ok(new { Status = "Success", Username = user.UserName, Role = userRoles.FirstOrDefault() });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return StatusCode(500, new { Status = "Error", Message = ex.Message });
+            }
         }
 
         [HttpPost("logout")]
@@ -118,11 +126,39 @@ namespace TicketAI.API.Controllers
 
         private JwtSecurityToken GetToken(List<Claim> authClaims)
         {
-            var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JwtSettings:SecretKey"]!));
+            // 1. Try resolving key from standard configuration hierarchy
+            var secretKey = _configuration["JwtSettings:SecretKey"];
+
+            // 2. Fallback: Check flat alternative section path
+            if (string.IsNullOrEmpty(secretKey))
+            {
+                secretKey = _configuration["Jwt:SecretKey"];
+            }
+
+            // 3. Fallback: Search directly for system environment variable providers
+            if (string.IsNullOrEmpty(secretKey))
+            {
+                secretKey = Environment.GetEnvironmentVariable("JwtSettings__SecretKey");
+            }
+
+            // 4. Defensive Fallback: Implement a emergency validation check rather than crashing thread
+            if (string.IsNullOrEmpty(secretKey))
+            {
+                if (_env.IsDevelopment())
+                {
+                    secretKey = "DevelopmentMockSecretKeyMustBe32BytesLong!";
+                }
+                else
+                {
+                    throw new InvalidOperationException("Backend Runtime Error: JWT signing token is unconfigured on server environment variables.");
+                }
+            }
+
+            var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
 
             var token = new JwtSecurityToken(
-                issuer: _configuration["JwtSettings:Issuer"],
-                audience: _configuration["JwtSettings:Audience"],
+                issuer: _configuration["JwtSettings:Issuer"] ?? _configuration["Jwt:Issuer"] ?? "TicketAI",
+                audience: _configuration["JwtSettings:Audience"] ?? _configuration["Jwt:Audience"] ?? "TicketAIUsers",
                 expires: DateTime.Now.AddHours(3),
                 claims: authClaims,
                 signingCredentials: new SigningCredentials(authSigningKey, SecurityAlgorithms.HmacSha256)
