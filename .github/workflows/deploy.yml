@@ -1,4 +1,4 @@
-name: Deploy ASP.NET Core Backend
+name: Deploy TicketAI Backend
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
 
     - name: Publish Framework-Dependent App
       run: |
-        dotnet publish ./YourProjectName.csproj -c Release -r linux-x64 --self-contained false -o ./publish
+        dotnet publish ./ticketai.csproj -c Release -r linux-x64 --self-contained false -o ./publish
 
     - name: Clear Stale Artifacts and Synchronize via SSH
       uses: easingthemes/ssh-deploy@main
@@ -29,7 +29,7 @@ jobs:
         SOURCE: "publish/"
         REMOTE_HOST: ${{ secrets.SSH_HOST }}
         REMOTE_USER: ${{ secrets.SSH_USER }}
-        TARGET: "/var/www/ticketai/production/api"
+        TARGET: "/var/www/ticketai/production/api" # Updated directory path
 
     - name: Hot-Restart systemd Application Daemon
       uses: appleboy/ssh-action@master
@@ -38,4 +38,4 @@ jobs:
         username: ${{ secrets.SSH_USER }}
         key: ${{ secrets.SSH_KEY }}
         script: |
-          sudo systemctl restart support-orchestrator.service
+          sudo systemctl restart ticketai.service
