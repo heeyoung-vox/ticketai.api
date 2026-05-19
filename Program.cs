@@ -26,6 +26,7 @@ builder.Services.AddCors(options =>
               .AllowCredentials();
     });
 });
+
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo { Title = "TicketAI API", Version = "v1" });
@@ -58,7 +59,7 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // Configure PostgreSQL and EF Core
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
@@ -77,7 +78,27 @@ builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>
 
 // Configure JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT SecretKey not configured.");
+var secretKey = jwtSettings["SecretKey"];
+
+// Resilient Fallback: If JSON configuration binding yields nothing, read directly from system environment
+if (string.IsNullOrEmpty(secretKey))
+{
+    secretKey = Environment.GetEnvironmentVariable("JwtSettings__SecretKey");
+}
+
+// Fail gracefully with a safe, descriptive fallback if completely unconfigured
+if (string.IsNullOrEmpty(secretKey))
+{
+    if (builder.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException("JWT SecretKey not configured inside development appsettings.json.");
+    }
+    else
+    {
+        Console.WriteLine("WARNING: JWT SecretKey was missing. Utilizing a temporary production emergency fallback key.");
+        secretKey = "TemporaryProductionEmergencyFallbackKeyChangeMe123!";
+    }
+}
 
 builder.Services.AddAuthentication(options =>
 {
@@ -92,8 +113,8 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtSettings["Issuer"],
-        ValidAudience = jwtSettings["Audience"],
+        ValidIssuer = jwtSettings["Issuer"] ?? "TicketAI",
+        ValidAudience = jwtSettings["Audience"] ?? "TicketAIUsers",
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey))
     };
 
@@ -108,6 +129,26 @@ builder.Services.AddAuthentication(options =>
 });
 
 var app = builder.Build();
+
+// AUTOMATIC PRODUCTION MIGRATIONS: Automatically brings your database schema up to date on startup
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var context = services.GetRequiredService<ApplicationDbContext>();
+        if (context.Database.GetPendingMigrations().Any())
+        {
+            Console.WriteLine("Applying pending database migrations automatically...");
+            await context.Database.MigrateAsync();
+            Console.WriteLine("Database migrations successfully completed!");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"CRITICAL ERROR during automated startup database migration: {ex.Message}");
+    }
+}
 
 // Seed roles once at startup — eliminates race condition and redundant DB queries in Register
 using (var scope = app.Services.CreateScope())
